@@ -121,6 +121,11 @@ class CardReaderViewModel : ViewModel() {
         connectionStatus.value = ConnectionStatus.READY
         statusMessage.value = "✅ พร้อมใช้งาน\nเสียบบัตรเพื่อเริ่มอ่านข้อมูล"
 
+        // ✅ ส่งสถานะเมื่อเชื่อมต่อสำเร็จโดยอัตโนมัติ
+        viewModelScope.launch {
+            springService?.sendStatus("เชื่อมต่อสำเร็จ")
+        }
+
         if (autoReadEnabled.value) {
             viewModelScope.launch {
                 delay(Constants.AUTO_READ_DELAY_MS)
