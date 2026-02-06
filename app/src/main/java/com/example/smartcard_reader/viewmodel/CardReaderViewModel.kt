@@ -11,6 +11,9 @@ import com.example.smartcard_reader.SpringBootService
 import com.example.smartcard_reader.util.Constants
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import android.content.Intent
+import androidx.core.content.ContextCompat
+import com.example.smartcard_reader.service.CardReaderBackgroundService
 
 class CardReaderViewModel : ViewModel() {
 
@@ -187,6 +190,18 @@ class CardReaderViewModel : ViewModel() {
         }
     }
 
+    fun startBackgroundService(context: Context) {
+        val intent = Intent(context, CardReaderBackgroundService::class.java)
+        ContextCompat.startForegroundService(context, intent)
+    }
+
+    fun triggerReadCard(context: Context) {
+        val intent = Intent(context, CardReaderBackgroundService::class.java).apply {
+            action = CardReaderBackgroundService.ACTION_READ_CARD
+        }
+        context.startService(intent)
+    }
+
     fun readCard() {
         // ✅ เพิ่มการตรวจสอบการเชื่อมต่อก่อนเริ่มอ่าน
         if (!cardReader.isDeviceConnected()) {
@@ -204,9 +219,11 @@ class CardReaderViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
+
                 isLoading.value = true
                 statusMessage.value = "⏳ กำลังอ่านข้อมูลบัตร...\nกรุณารอสักครู่"
                 springService?.sendStatus("กำลังอ่านบัตร...")
+                springService?.startListeningForCommands()
 
                 var data: Map<String, String>? = null
                 var retryCount = 0

@@ -52,21 +52,6 @@ fun CardReaderScreen(viewModel: CardReaderViewModel) {
             //)
             //}
 
-            // Action Buttons
-            Column(
-                Modifier.padding(vertical = 16.dp)
-            ){
-                ActionButtons(
-                    connectionStatus = viewModel.connectionStatus.value,
-                    isLoading = viewModel.isLoading.value,
-                    hasData = viewModel.cardData.value != null,
-                    onReadCard = { viewModel.readCard() },
-                    onSaveData = { viewModel.saveData() },
-                    onClearData = { viewModel.clearData() },
-                    onReconnect = { viewModel.reconnectReader() }
-                )
-            }
-
 
             // Loading Indicator
             if (viewModel.isLoading.value) {
@@ -134,6 +119,21 @@ fun CardReaderScreen(viewModel: CardReaderViewModel) {
                     }
 
                 }
+            }
+
+            // Action Buttons
+            Column(
+                Modifier.padding(vertical = 16.dp)
+            ){
+                ActionButtons(
+                    connectionStatus = viewModel.connectionStatus.value,
+                    isLoading = viewModel.isLoading.value,
+                    hasData = viewModel.cardData.value != null,
+                    onReadCard = { viewModel.readCard() },
+                    onSaveData = { viewModel.saveData() },
+                    onClearData = { viewModel.clearData() },
+                    onReconnect = { viewModel.reconnectReader() }
+                )
             }
     }
 }

@@ -1,5 +1,6 @@
 package com.example.smartcard_reader
 
+import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
@@ -19,6 +20,8 @@ import com.example.smartcard_reader.util.UsbPermissionHandler
 import com.example.smartcard_reader.viewmodel.CardReaderViewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
+import androidx.core.content.ContextCompat
+import com.example.smartcard_reader.service.CardReaderBackgroundService
 
 class MainActivity : ComponentActivity() {
 
@@ -27,6 +30,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Start background service
+        val intent = Intent(this, CardReaderBackgroundService::class.java)
+        ContextCompat.startForegroundService(this, intent)
 
         // สร้าง ViewModel
         viewModel = ViewModelProvider(this)[CardReaderViewModel::class.java]
