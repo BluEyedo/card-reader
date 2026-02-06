@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -71,13 +74,38 @@ fun CardReaderScreen(viewModel: CardReaderViewModel) {
             }
 
             // Photo Card
-            if (!viewModel.isLoading.value && viewModel.photoBase64.value != null) {
-                PhotoCard(photoBase64 = viewModel.photoBase64.value!!)
-            }
+//            if (!viewModel.isLoading.value && viewModel.photoBase64.value != null) {
+//                PhotoCard(photoBase64 = viewModel.photoBase64.value!!)
+//            }
 
             // Card Data
             if (!viewModel.isLoading.value && viewModel.cardData.value != null) {
-                CardDataCard(cardData = viewModel.cardData.value!!)
+                //CardDataCard(cardData = viewModel.cardData.value!!)
+                Card(modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ){
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(80.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                        ){
+                            Icon(
+                                imageVector = Icons.Filled.CheckCircle,
+                                contentDescription = "CheckCircle",
+                                tint = Color(0xFF4CAF50)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("อ่านข้อมูลบัตรเรียบร้อยแล้ว",textAlign = androidx.compose.ui.text.style.TextAlign.Center );
+                        }
+
+
+                    }
+                }
             }
 
             if(!viewModel.isLoading.value && viewModel.cardData.value == null){
@@ -91,16 +119,22 @@ fun CardReaderScreen(viewModel: CardReaderViewModel) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(80.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text("ไม่มีข้อมูลอยู่ กรุณาอ่านบัตร", textAlign = androidx.compose.ui.text.style.TextAlign.Center );
+                        Row(){
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "Close",
+                                tint = Color.Red
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("ไม่มีข้อมูลอยู่ กรุณาอ่านบัตร", textAlign = androidx.compose.ui.text.style.TextAlign.Center );
+                        }
                     }
 
+                }
             }
-
-
-        }
     }
 }
 }
