@@ -1,25 +1,22 @@
 package com.example.smartcard_reader.viewmodel
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import androidx.compose.runtime.mutableStateOf
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.smartcard_reader.data.model.CardData
 import com.example.smartcard_reader.SmartCardReader
 import com.example.smartcard_reader.SpringBootService
+import com.example.smartcard_reader.data.model.CardData
+import com.example.smartcard_reader.service.CardReaderForegroundService
 import com.example.smartcard_reader.util.Constants
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import android.content.Intent
-import androidx.core.content.ContextCompat
-import com.example.smartcard_reader.service.CardReaderBackgroundService
 
 class CardReaderViewModel : ViewModel() {
 
-    companion object {
-        private const val TAG = "CardReaderViewModel"
-    }
     // State
     val cardData = mutableStateOf<CardData?>(null)
     val photoBase64 = mutableStateOf<String?>(null)
@@ -36,35 +33,38 @@ class CardReaderViewModel : ViewModel() {
     private var readerInitialized = false
     private lateinit var appContext: Context
 
-    // ✅ เพิ่ม callback สำหรับ reconnect
+    // Callback for reconnect
     var onReconnectRequested: (() -> Unit)? = null
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
-        
+
         // Load saved URL or use default
-        val prefs = appContext.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
-        val savedUrl = prefs.getString(Constants.KEY_SERVER_URL, Constants.DEFAULT_SPRING_BOOT_URL) ?: Constants.DEFAULT_SPRING_BOOT_URL
+        val savedUrl = getSavedServerUrl()
         serverUrl.value = savedUrl
-        
+
         setupSpringService(savedUrl)
+        setupCardReader(context)
+    }
 
-        // สร้าง Card Reader
-        cardReader = SmartCardReader(context)
-        cardReader.initialize()
+    private fun getSavedServerUrl(): String {
+        val prefs = appContext.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(Constants.KEY_SERVER_URL, Constants.DEFAULT_SPRING_BOOT_URL)
+            ?: Constants.DEFAULT_SPRING_BOOT_URL
+    }
 
-        cardReader.onReaderReady = {
-            onReaderReady()
-        }
-        
-        cardReader.onReaderDisconnected = {
-            viewModelScope.launch {
-                Log.e(TAG, "🔌 Reader disconnected!")
-                readerInitialized = false
-                connectionStatus.value = ConnectionStatus.DISCONNECTED
-                statusMessage.value = "ไม่เชื่อมต่อ\n\nกรุณาเสียบเครื่องอ่านบัตรใหม่\nและกดปุ่ม \nเชื่อมต่อใหม่\n"
-                springService?.sendStatus("ไม่เชื่อมต่อ")
-            }
+    private fun saveServerUrl(url: String) {
+        appContext.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(Constants.KEY_SERVER_URL, url)
+            .apply()
+    }
+
+    private fun setupCardReader(context: Context) {
+        cardReader = SmartCardReader(context).apply {
+            initialize()
+            onReaderReady = { handleReaderReady() }
+            onReaderDisconnected = { handleReaderDisconnected() }
         }
     }
 
@@ -74,15 +74,17 @@ class CardReaderViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "🔌 Testing connection to: $url")
-            val connected = springService?.testConnection() ?: false
-            
+            val connected = springService?.testConnection() == true
+
             if (connected) {
                 Log.d(TAG, "✅ Connection OK - Starting command listener")
-                springService?.onCommandReceived = { command ->
-                    Log.d(TAG, "📥 Callback triggered with: $command")
-                    handleCommand(command)
+                springService?.apply {
+                    onCommandReceived = { command ->
+                        Log.d(TAG, "📥 Callback triggered with: $command")
+                        handleCommand(command)
+                    }
+                    startListeningForCommands()
                 }
-                springService?.startListeningForCommands()
             } else {
                 Log.e(TAG, "❌ Connection FAILED - Cannot start listener")
                 statusMessage.value = "❌ ไม่สามารถเชื่อมต่อ Spring Boot\nตรวจสอบ URL: $url"
@@ -91,19 +93,18 @@ class CardReaderViewModel : ViewModel() {
     }
 
     fun updateServerUrl(newUrl: String) {
-        var formattedUrl = newUrl.trim()
-        if (!formattedUrl.startsWith("http://") && !formattedUrl.startsWith("https://")) {
-            formattedUrl = "http://$formattedUrl"
-        }
-        
+        val formattedUrl = formatUrl(newUrl.trim())
         serverUrl.value = formattedUrl
-        
-        // Save to preferences
-        val prefs = appContext.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(Constants.KEY_SERVER_URL, formattedUrl).apply()
-        
-        // Re-initialize service
+        saveServerUrl(formattedUrl)
         setupSpringService(formattedUrl)
+    }
+
+    private fun formatUrl(url: String): String {
+        return if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            "http://$url"
+        } else {
+            url
+        }
     }
 
     fun onUsbPermissionGranted() {
@@ -118,22 +119,29 @@ class CardReaderViewModel : ViewModel() {
         statusMessage.value = "❌ ไม่ได้รับอนุญาตใช้งาน USB\n\nกรุณาอนุญาตและกดปุ่ม \"เชื่อมต่อใหม่\""
     }
 
-    private fun onReaderReady() {
+    private fun handleReaderReady() {
         Log.d(TAG, "✅ Card Reader is ready!")
         readerInitialized = true
         connectionStatus.value = ConnectionStatus.READY
         statusMessage.value = "✅ พร้อมใช้งาน\nเสียบบัตรเพื่อเริ่มอ่านข้อมูล"
 
-        // ✅ ส่งสถานะเมื่อเชื่อมต่อสำเร็จโดยอัตโนมัติ
         viewModelScope.launch {
             springService?.sendStatus("เชื่อมต่อสำเร็จ")
-        }
 
-        if (autoReadEnabled.value) {
-            viewModelScope.launch {
+            if (autoReadEnabled.value) {
                 delay(Constants.AUTO_READ_DELAY_MS)
                 readCard()
             }
+        }
+    }
+
+    private fun handleReaderDisconnected() {
+        viewModelScope.launch {
+            Log.e(TAG, "🔌 Reader disconnected!")
+            readerInitialized = false
+            connectionStatus.value = ConnectionStatus.DISCONNECTED
+            statusMessage.value = "ไม่เชื่อมต่อ\n\nกรุณาเสียบเครื่องอ่านบัตรใหม่\nและกดปุ่ม \nเชื่อมต่อใหม่\n"
+            springService?.sendStatus("ไม่เชื่อมต่อ")
         }
     }
 
@@ -145,19 +153,30 @@ class CardReaderViewModel : ViewModel() {
             val success = cardReader.openReader()
 
             if (success) {
-                Log.d(TAG, "✅ Reader opened successfully")
-                readerInitialized = true
-                connectionStatus.value = ConnectionStatus.READY
-                statusMessage.value = "✅ พร้อมใช้งาน\nเสียบบัตรเพื่อเริ่มอ่านข้อมูล"
-                springService?.sendStatus("เชื่อมต่อสำเร็จ")
+                handleReaderOpenSuccess()
             } else {
-                Log.e(TAG, "❌ Failed to open reader")
-                readerInitialized = false
-                connectionStatus.value = ConnectionStatus.DISCONNECTED
-                statusMessage.value = "❌ ไม่สามารถเชื่อมต่อได้\n\nกรุณาเสียบเครื่องอ่านบัตรใหม่\nและตรวจสอบว่ามีบัตรอยู่ในเครื่อง\nแล้วกดปุ่ม \"เชื่อมต่อใหม่\""
-                springService?.sendStatus("เชื่อมต่อล้มเหลว")
+                handleReaderOpenFailure()
             }
         }
+    }
+
+    private suspend fun handleReaderOpenSuccess() {
+        Log.d(TAG, "✅ Reader opened successfully")
+        readerInitialized = true
+        connectionStatus.value = ConnectionStatus.READY
+        statusMessage.value = "✅ พร้อมใช้งาน\nเสียบบัตรเพื่อเริ่มอ่านข้อมูล"
+        springService?.sendStatus("เชื่อมต่อสำเร็จ")
+    }
+
+    private suspend fun handleReaderOpenFailure() {
+        Log.e(TAG, "❌ Failed to open reader")
+        readerInitialized = false
+        connectionStatus.value = ConnectionStatus.DISCONNECTED
+        statusMessage.value = "❌ ไม่สามารถเชื่อมต่อได้\n\n" +
+                "กรุณาเสียบเครื่องอ่านบัตรใหม่\n" +
+                "และตรวจสอบว่ามีบัตรอยู่ในเครื่อง\n" +
+                "แล้วกดปุ่ม \"เชื่อมต่อใหม่\""
+        springService?.sendStatus("เชื่อมต่อล้มเหลว")
     }
 
     fun reconnectReader() {
@@ -166,11 +185,14 @@ class CardReaderViewModel : ViewModel() {
             try {
                 cardReader.close()
                 readerInitialized = false
-                delay(500)
+                delay(RECONNECT_DELAY_MS)
+
                 connectionStatus.value = ConnectionStatus.CONNECTING
                 statusMessage.value = "⏳ กำลังเชื่อมต่อใหม่...\nกรุณารอสักครู่"
+
                 cardReader.initialize()
-                delay(500)
+                delay(RECONNECT_DELAY_MS)
+
                 onReconnectRequested?.invoke()
             } catch (e: Exception) {
                 Log.e(TAG, "Error reconnecting", e)
@@ -182,101 +204,137 @@ class CardReaderViewModel : ViewModel() {
 
     private fun handleCommand(command: String) {
         Log.d(TAG, "🎮 Handling command: $command")
-        when (command) {
-            "read_card" -> viewModelScope.launch { readCard() }
-            "clear_data" -> viewModelScope.launch { clearData() }
-            "save_data" -> viewModelScope.launch { saveData() }
-            else -> Log.w(TAG, "⚠️ Unknown command: $command")
+        viewModelScope.launch {
+            when (command) {
+                COMMAND_READ_CARD -> readCard()
+                COMMAND_CLEAR_DATA -> clearData()
+                COMMAND_SAVE_DATA -> saveData()
+                else -> Log.w(TAG, "⚠️ Unknown command: $command")
+            }
         }
     }
 
-    fun startBackgroundService(context: Context) {
-        val intent = Intent(context, CardReaderBackgroundService::class.java)
+    fun startService(context: Context) {
+        val intent = Intent(context, CardReaderForegroundService::class.java)
         ContextCompat.startForegroundService(context, intent)
     }
 
-    fun triggerReadCard(context: Context) {
-        val intent = Intent(context, CardReaderBackgroundService::class.java).apply {
-            action = CardReaderBackgroundService.ACTION_READ_CARD
-        }
-        context.startService(intent)
+    fun stopService(context: Context) {
+        val intent = Intent(context, CardReaderForegroundService::class.java)
+        context.stopService(intent)
     }
 
     fun readCard() {
-        // ✅ เพิ่มการตรวจสอบการเชื่อมต่อก่อนเริ่มอ่าน
-        if (!cardReader.isDeviceConnected()) {
-            Log.e(TAG, "❌ Device not connected physically")
-            readerInitialized = false
-            connectionStatus.value = ConnectionStatus.DISCONNECTED
-            statusMessage.value = "ไม่เชื่อมต่อ\n\nกรุณาเสียบเครื่องอ่านบัตรใหม่\nและกดปุ่ม \nเชื่อมต่อใหม่\n"
-            return
-        }
-
-        if (!readerInitialized) {
-            statusMessage.value = "❌ เครื่องอ่านบัตรไม่พร้อม\nกรุณากดปุ่ม \"เชื่อมต่อใหม่\""
-            return
-        }
+        if (!validateReaderConnection()) return
 
         viewModelScope.launch {
             try {
-
                 isLoading.value = true
-                statusMessage.value = "⏳ กำลังอ่านข้อมูลบัตร...\nกรุณารอสักครู่"
-                springService?.sendStatus("กำลังอ่านบัตร...")
-                springService?.startListeningForCommands()
+                updateReadingStatus()
 
-                var data: Map<String, String>? = null
-                var retryCount = 0
-                val maxRetries = Constants.MAX_RETRY_COUNT
+                val data = readCardDataWithRetry()
 
-                while (data == null && retryCount < maxRetries) {
-                    if (retryCount > 0) {
-                        statusMessage.value = "⏳ กำลังลองอีกครั้ง (${retryCount}/$maxRetries)..."
-                        delay(Constants.RETRY_DELAY_MS)
-                    }
-                    data = cardReader.readBasicInfo()
-                    retryCount++
-                }
-
-                if (data == null || data["CID"].isNullOrEmpty()) {
-                    // ตรวจสอบอีกครั้งว่าหลุดระหว่างอ่านหรือไม่
-                    if (!cardReader.isDeviceConnected()) {
-                        statusMessage.value = "ไม่เชื่อมต่อ\n\nกรุณาเสียบเครื่องอ่านบัตรใหม่\nและกดปุ่ม \nเชื่อมต่อใหม่\n"
-                    } else {
-                        statusMessage.value = "⚠️ ไม่พบบัตรประชาชน\n\nกรุณาเสียบบัตรให้แน่น"
-                    }
-                    springService?.sendStatus("️️ไม่พบบัตรประชาชน")
-                    isLoading.value = false
+                if (data.isNullOrEmpty() || data["CID"].isNullOrEmpty()) {
+                    handleReadFailure()
                     return@launch
                 }
 
-                cardData.value = CardData.fromMap(data)
-                isReadingPhoto.value = true
-                statusMessage.value = "⏳ กำลังอ่านรูปภาพ...\n(ประมาณ 5-10 วินาที)"
-                springService?.sendStatus("กำลังอ่านรูปภาพ...")
-
-                val photo = cardReader.readPhoto()
-                if (photo != null) photoBase64.value = photo
-                isReadingPhoto.value = false
-
-                val success = springService?.sendCardData(data, photo) ?: false
-                if (success) {
-                    statusMessage.value = "✅ สำเร็จ!\n\nถอดบัตรออกแล้วเสียบใหม่เพื่ออ่านต่อ"
-                    springService?.sendStatus("อ่านบัตรสำเร็จ")
-                } else {
-                    statusMessage.value = "⚠️ อ่านได้แต่ส่งข้อมูลไม่สำเร็จ\nตรวจสอบ IP: ${serverUrl.value}"
-                    springService?.sendStatus("ส่งข้อมูลล้มเหลว")
-                }
-
+                processCardData(data)
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Error reading card", e)
-                statusMessage.value = "❌ เกิดข้อผิดพลาด\n${e.message}"
-                springService?.sendStatus("❌ เกิดข้อผิดพลาด")
+                handleReadError(e)
             } finally {
                 isLoading.value = false
                 isReadingPhoto.value = false
             }
         }
+    }
+
+    private fun validateReaderConnection(): Boolean {
+        if (!cardReader.isDeviceConnected()) {
+            Log.e(TAG, "❌ Device not connected physically")
+            readerInitialized = false
+            connectionStatus.value = ConnectionStatus.DISCONNECTED
+            statusMessage.value = "ไม่เชื่อมต่อ\n\n" +
+                    "กรุณาเสียบเครื่องอ่านบัตรใหม่\n" +
+                    "และกดปุ่ม \nเชื่อมต่อใหม่\n"
+            return false
+        }
+
+        if (!readerInitialized) {
+            statusMessage.value = "❌ เครื่องอ่านบัตรไม่พร้อม\nกรุณากดปุ่ม \"เชื่อมต่อใหม่\""
+            return false
+        }
+
+        return true
+    }
+
+    private suspend fun updateReadingStatus() {
+        statusMessage.value = "⏳ กำลังอ่านข้อมูลบัตร...\nกรุณารอสักครู่"
+        springService?.sendStatus("กำลังอ่านบัตร...")
+        springService?.startListeningForCommands()
+    }
+
+    private suspend fun readCardDataWithRetry(): Map<String, String>? {
+        var data: Map<String, String>? = null
+        var retryCount = 0
+
+        while (data == null && retryCount < Constants.MAX_RETRY_COUNT) {
+            if (retryCount > 0) {
+                statusMessage.value = "⏳ กำลังลองอีกครั้ง ($retryCount/${Constants.MAX_RETRY_COUNT})..."
+                delay(Constants.RETRY_DELAY_MS)
+            }
+            data = cardReader.readBasicInfo()
+            retryCount++
+        }
+
+        return data
+    }
+
+    private suspend fun handleReadFailure() {
+        statusMessage.value = if (!cardReader.isDeviceConnected()) {
+            "ไม่เชื่อมต่อ\n\nกรุณาเสียบเครื่องอ่านบัตรใหม่\nและกดปุ่ม \nเชื่อมต่อใหม่\n"
+        } else {
+            "⚠️ ไม่พบบัตรประชาชน\n\nกรุณาเสียบบัตรให้แน่น"
+        }
+        springService?.sendStatus("️️ไม่พบบัตรประชาชน")
+        isLoading.value = false
+    }
+
+    private suspend fun processCardData(data: Map<String, String>) {
+        cardData.value = CardData.fromMap(data)
+
+        val photo = readCardPhoto()
+
+        val success = springService?.sendCardData(data, photo) == true
+        updateFinalStatus(success)
+    }
+
+    private suspend fun readCardPhoto(): String? {
+        isReadingPhoto.value = true
+        statusMessage.value = "⏳ กำลังอ่านรูปภาพ...\n(ประมาณ 5-10 วินาที)"
+        springService?.sendStatus("กำลังอ่านรูปภาพ...")
+
+        val photo = cardReader.readPhoto()
+        if (photo != null) photoBase64.value = photo
+
+        isReadingPhoto.value = false
+        return photo
+    }
+
+    private suspend fun updateFinalStatus(success: Boolean) {
+        if (success) {
+            statusMessage.value = "✅ สำเร็จ!\n\nถอดบัตรออกแล้วเสียบใหม่เพื่ออ่านต่อ"
+            springService?.sendStatus("อ่านบัตรสำเร็จ")
+        } else {
+            statusMessage.value = "⚠️ อ่านได้แต่ส่งข้อมูลไม่สำเร็จ\nตรวจสอบ IP: ${serverUrl.value}"
+            springService?.sendStatus("ส่งข้อมูลล้มเหลว")
+        }
+    }
+
+    private suspend fun handleReadError(e: Exception) {
+        Log.e(TAG, "❌ Error reading card", e)
+        statusMessage.value = "❌ เกิดข้อผิดพลาด\n${e.message}"
+        springService?.sendStatus("❌ เกิดข้อผิดพลาด")
     }
 
     fun clearData() {
@@ -285,8 +343,9 @@ class CardReaderViewModel : ViewModel() {
             photoBase64.value = null
             statusMessage.value = "✅ เคลียข้อมูลแล้ว"
             springService?.sendStatus("เคลียข้อมูลแล้ว")
+
             if (autoReadEnabled.value) {
-                delay(1000)
+                delay(AUTO_READ_AFTER_CLEAR_DELAY_MS)
                 readCard()
             }
         }
@@ -313,5 +372,16 @@ class CardReaderViewModel : ViewModel() {
         CONNECTING,
         CONNECTED,
         READY
+    }
+
+    companion object {
+        private const val TAG = "CardReaderViewModel"
+        private const val RECONNECT_DELAY_MS = 500L
+        private const val AUTO_READ_AFTER_CLEAR_DELAY_MS = 1000L
+
+        // Command constants
+        private const val COMMAND_READ_CARD = "read_card"
+        private const val COMMAND_CLEAR_DATA = "clear_data"
+        private const val COMMAND_SAVE_DATA = "save_data"
     }
 }

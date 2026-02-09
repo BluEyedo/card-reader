@@ -170,7 +170,9 @@ class SmartCardReader(private val context: Context) {
                 ThaiIDField("ExpireDate", "วันหมดอายุ",
                     byteArrayOf(0x80.toByte(), 0xb0.toByte(), 0x01, 0x6F, 0x02, 0x00, 0x08)),
                 ThaiIDField("Address", "ที่อยู่",
-                    byteArrayOf(0x80.toByte(), 0xb0.toByte(), 0x15, 0x79, 0x02, 0x00, 0x64))
+                    byteArrayOf(0x80.toByte(), 0xb0.toByte(), 0x15, 0x79, 0x02, 0x00, 0x64)),
+                ThaiIDField("Religion", "ศาสนา",
+                    byteArrayOf(0x80.toByte(), 0xb0.toByte(),0x00, 0xD5.toByte(),0x02, 0x00, 0x14))
             )
 
             val resultMap = mutableMapOf<String, String>()
