@@ -31,15 +31,15 @@ fun CardReaderScreen(viewModel: CardReaderViewModel) {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Outlined.AccountBox,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
+//                        Icon(
+//                            imageVector = Icons.Outlined.AccountBox,
+//                            contentDescription = null,
+//                            tint = Color.White,
+//                            modifier = Modifier.size(24.dp)
+//                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "ID Card Reader",
+                            "ICS Portal ID Card",
                             color = Color.White,
                             fontWeight = FontWeight.Bold
                         )
