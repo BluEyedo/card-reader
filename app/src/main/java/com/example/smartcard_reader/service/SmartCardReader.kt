@@ -28,23 +28,15 @@ class SmartCardReader(private val context: Context) {
 
     fun initialize() {
         usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
-        listUsbDevices()
     }
 
-    private fun listUsbDevices() {
-        val devices = usbManager?.deviceList?.values
-        if (devices.isNullOrEmpty()) {
-            usbDevice = null
-            return
-        }
-        
-        devices.forEach { device ->
-            Log.d(TAG, "🔍 USB FOUND")
-            Log.d(TAG, "  VendorId  = ${Integer.toHexString(device.vendorId)}")
-            Log.d(TAG, "  ProductId = ${Integer.toHexString(device.productId)}")
-            Log.d(TAG, "  Interfaces= ${device.interfaceCount}")
-            usbDevice = device
-        }
+    fun getAvailableDevices(): List<UsbDevice> {
+        return usbManager?.deviceList?.values?.toList() ?: emptyList()
+    }
+
+    fun selectDevice(device: UsbDevice) {
+        usbDevice = device
+        Log.d(TAG, "Selected device: ${device.deviceName}")
     }
 
     fun isDeviceConnected(): Boolean {
@@ -60,7 +52,7 @@ class SmartCardReader(private val context: Context) {
         try {
             val device = usbDevice
             if (device == null) {
-                Log.e(TAG, "❌ No USB device found")
+                Log.e(TAG, "❌ No USB device selected")
                 return false
             }
 

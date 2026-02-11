@@ -1,5 +1,7 @@
 package com.example.smartcard_reader.ui.screens
 
+import android.content.Context
+import android.hardware.usb.UsbDevice
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -9,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.AccountBox
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,25 +21,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.smartcard_reader.ui.components.*
+import com.example.smartcard_reader.util.BatteryOptimizationUtil
 import com.example.smartcard_reader.viewmodel.CardReaderViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CardReaderScreen(viewModel: CardReaderViewModel) {
+    var showMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-//                        Icon(
-//                            imageVector = Icons.Outlined.AccountBox,
-//                            contentDescription = null,
-//                            tint = Color.White,
-//                            modifier = Modifier.size(24.dp)
-//                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             "ICS Portal ID Card",
@@ -47,7 +49,36 @@ fun CardReaderScreen(viewModel: CardReaderViewModel) {
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color(0xFF1976D2)
-                )
+                ),
+                actions = {
+                    IconButton(onClick = { viewModel.refreshDevices(); showMenu = !showMenu }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More",
+                            tint = Color.White
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        viewModel.availableDevices.value.forEach { device ->
+                            DropdownMenuItem(
+                                text = { Text(device.deviceName) },
+                                onClick = {
+                                    viewModel.selectDevice(device)
+                                    showMenu = false
+                                }
+                            )
+                        }
+                        if (viewModel.availableDevices.value.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("No devices found") },
+                                onClick = {}
+                            )
+                        }
+                    }
+                }
             )
         }
     ) { padding ->
@@ -84,15 +115,6 @@ fun CardReaderScreen(viewModel: CardReaderViewModel) {
                             .fillMaxWidth()
                             .padding(24.dp)
                     ) {
-                        // Status Section - Always visible
-
-
-//                        Spacer(modifier = Modifier.height(24.dp))
-
-//                        HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
-
-//                        Spacer(modifier = Modifier.height(24.dp))
-
                         // Dynamic Content Area
                         Box(
                             modifier = Modifier.fillMaxWidth(),
@@ -114,8 +136,6 @@ fun CardReaderScreen(viewModel: CardReaderViewModel) {
                                 exit = fadeOut() + shrinkVertically()
                             ) {
                                 if (viewModel.cardData.value != null) {
-//                                    SuccessContent()
-
                                     StatusCard(
                                         connectionStatus = viewModel.connectionStatus.value,
                                         statusMessage = viewModel.statusMessage.value,
@@ -141,10 +161,60 @@ fun CardReaderScreen(viewModel: CardReaderViewModel) {
                     onClearData = { viewModel.clearData() },
                     onReconnect = { viewModel.reconnectReader() }
                 )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Battery Optimization Setting
+                BatteryOptimizationSetting(context)
             }
         }
     }
 }
+
+@Composable
+private fun BatteryOptimizationSetting(context: Context) {
+    val isIgnoringBatteryOptimizations = remember { mutableStateOf(BatteryOptimizationUtil.isBatteryOptimizationIgnored(context)) }
+
+    if (!isIgnoringBatteryOptimizations.value) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFFFFF3E0)
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "การทำงานเบื้องหลังอาจถูกจำกัด",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFFFA000)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "เพื่อให้แอปทำงานในพื้นหลังได้อย่างถูกต้องบนอุปกรณ์บางรุ่น (เช่น Huawei) จำเป็นต้องปิดการจัดการแบตเตอรี่สำหรับแอปนี้",
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    color = Color(0xFF616161)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = { BatteryOptimizationUtil.requestIgnoreBatteryOptimizations(context) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA000))
+                ) {
+                    Text(text = "ไปที่การตั้งค่า")
+                }
+            }
+        }
+    }
+}
+
 
 @Composable
 private fun SuccessContent() {

@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.smartcard_reader.SmartCardReader
@@ -32,7 +33,8 @@ class CardReaderBackgroundService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        springService = SpringBootService(Constants.DEFAULT_SPRING_BOOT_URL)
+        val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        springService = SpringBootService(Constants.DEFAULT_SPRING_BOOT_URL, deviceId)
         cardReader = SmartCardReader(this)
 
         cardReader.initialize()

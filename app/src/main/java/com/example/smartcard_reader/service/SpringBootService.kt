@@ -9,7 +9,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class SpringBootService(private val baseUrl: String) {
+class SpringBootService(private val baseUrl: String, private val deviceId: String) {
 
     companion object {
         private const val TAG = "SpringBootService"
@@ -20,9 +20,10 @@ class SpringBootService(private val baseUrl: String) {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.SECONDS)
-        .addInterceptor { chain ->  // ✅ เพิ่ม Interceptor
+        .addInterceptor { chain ->
             val request = chain.request().newBuilder()
-                .addHeader("X-API-KEY", API_KEY)  // หรือใช้ "Authorization", "Bearer $API_KEY"
+                .addHeader("X-API-KEY", API_KEY)
+                .addHeader("X-DEVICE-ID", deviceId) // ✅ Identify which device is making the request
                 .build()
             chain.proceed(request)
         }
@@ -33,6 +34,20 @@ class SpringBootService(private val baseUrl: String) {
 
     var onCommandReceived: ((String) -> Unit)? = null
 
+    // ทดสอบการเชื่อมต่อ
+    suspend fun testConnection(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = "$baseUrl/api/command/latest?deviceId=$deviceId"
+            val request = Request.Builder().url(url).get().build()
+            client.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Connection test failed: ${e.message}")
+            false
+        }
+    }
+
     // ส่งข้อมูลบัตรไปยัง Spring Boot
     suspend fun sendCardData(
         cardData: Map<String, String>,
@@ -41,6 +56,7 @@ class SpringBootService(private val baseUrl: String) {
         try {
             val payload = JSONObject().apply {
                 put("type", "card_data")
+                put("deviceId", deviceId) // ✅ Include device ID in payload
                 put("timestamp", System.currentTimeMillis())
                 put("data", JSONObject(cardData))
                 put("photo", photoBase64)
@@ -48,7 +64,6 @@ class SpringBootService(private val baseUrl: String) {
 
             val url = "$baseUrl/api/card/update"
             Log.d(TAG, "📤 Sending card data to: $url")
-            Log.d(TAG, "📦 Payload size: ${payload.toString().length} bytes")
 
             val requestBody = payload.toString()
                 .toRequestBody("application/json".toMediaType())
@@ -58,23 +73,11 @@ class SpringBootService(private val baseUrl: String) {
                 .post(requestBody)
                 .build()
 
-            val response = client.newCall(request).execute()
-            val responseCode = response.code
-            val responseBody = response.body?.string()
-
-            if (response.isSuccessful) {
-                Log.d(TAG, "✅ Data sent successfully")
-                true
-            } else {
-                Log.e(TAG, "❌ Failed with code: $responseCode")
-                Log.e(TAG, "❌ Response: $responseBody")
-                false
+            client.newCall(request).execute().use { response ->
+                response.isSuccessful
             }
-        } catch (e: IOException) {
-            Log.e(TAG, "❌ Network error: ${e.message}", e)
-            false
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error sending data: ${e.message}", e)
+            Log.e(TAG, "❌ Error sending data: ${e.message}")
             false
         }
     }
@@ -84,13 +87,12 @@ class SpringBootService(private val baseUrl: String) {
         try {
             val payload = JSONObject().apply {
                 put("type", "status")
+                put("deviceId", deviceId) // ✅ Include device ID
                 put("timestamp", System.currentTimeMillis())
                 put("message", status)
             }
 
             val url = "$baseUrl/api/card/update"
-            Log.d(TAG, "📊 Status: $status")
-
             val requestBody = payload.toString()
                 .toRequestBody("application/json".toMediaType())
 
@@ -99,162 +101,75 @@ class SpringBootService(private val baseUrl: String) {
                 .post(requestBody)
                 .build()
 
-            val response = client.newCall(request).execute()
-            
-            if (response.isSuccessful) {
-                Log.d(TAG, "✅ Status sent successfully")
-            } else {
-                Log.w(TAG, "⚠️ Status send failed: ${response.code}")
+            client.newCall(request).execute().use { response ->
+                // Just execute, don't necessarily need to check response for status updates
             }
-            
         } catch (e: Exception) {
             Log.w(TAG, "⚠️ Error sending status: ${e.message}")
         }
     }
 
-    // เริ่มฟังคำสั่งจากเว็บ (Polling)
+    // เริ่มฟังคำสั่งจากเว็บ (Polling) - URL now includes deviceId
     fun startListeningForCommands() {
-        Log.d(TAG, "👂 Starting to listen for commands...")
-        Log.d(TAG, "🌐 Polling URL: $baseUrl/api/command/latest")
-
         pollingJob = scope.launch {
             while (isActive) {
                 checkForCommands()
-                delay(500) // เช็คทุก 500ms
+                delay(500)
             }
         }
-        
-        Log.d(TAG, "✅ Polling job started")
     }
 
     // หยุดฟังคำสั่ง
     fun stopListeningForCommands() {
         pollingJob?.cancel()
         pollingJob = null
-        Log.d(TAG, "🛑 Stopped listening for commands")
     }
 
-    // เช็คว่ามีคำสั่งใหม่หรือไม่
     private suspend fun checkForCommands() = withContext(Dispatchers.IO) {
         try {
-            val url = "$baseUrl/api/command/latest"            
-            val request = Request.Builder()
-                .url(url)
-                .get()
-                .build()
+            // ✅ Server can now filter commands for this specific device
+            val url = "$baseUrl/api/command/latest?deviceId=$deviceId"
+            val request = Request.Builder().url(url).get().build()
 
-            val response = client.newCall(request).execute()
-            val responseCode = response.code
-            val body = response.body?.string()
-            if (!response.isSuccessful) {
-                Log.e(TAG, "❌ HTTP Error $responseCode")
-                return@withContext
-            }
-            if (body.isNullOrBlank()) {
-                return@withContext
-            }
-            val json = JSONObject(body)
-            Log.d(TAG, "📦 Parsed JSON: $json")
-            if (json.optBoolean("hasCommand", false)) {
-                val command = json.getString("command")
-                Log.d(TAG, "📨 Received command: $command")
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string()
 
-                withContext(Dispatchers.Main) {
-                    Log.d(TAG, "🎯 Invoking callback for: $command")
-                    onCommandReceived?.invoke(command)
+                if (response.isSuccessful && !body.isNullOrBlank()) {
+                    val json = JSONObject(body)
+                    if (json.optBoolean("hasCommand", false)) {
+                        val command = json.getString("command")
+                        withContext(Dispatchers.Main) {
+                            onCommandReceived?.invoke(command)
+                        }
+                        acknowledgeCommand(command)
+                    }
                 }
-
-                acknowledgeCommand(command)
-            } 
-            
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error: ${e.message}", e)
+            Log.e(TAG, "❌ Error: ${e.message}")
         }
     }
 
-    // ยืนยันว่ารับคำสั่งแล้ว
     private suspend fun acknowledgeCommand(command: String) = withContext(Dispatchers.IO) {
         try {
             val payload = JSONObject().apply {
                 put("command", command)
+                put("deviceId", deviceId) // ✅ Acknowledge for this device
             }
-
-            val requestBody = payload.toString()
-                .toRequestBody("application/json".toMediaType())
 
             val request = Request.Builder()
                 .url("$baseUrl/api/command/acknowledge")
-                .post(requestBody)
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
-            val response = client.newCall(request).execute()
-            
-            if (response.isSuccessful) {
-                Log.d(TAG, "✅ Command acknowledged: $command")
-            } else {
-                Log.w(TAG, "⚠️ Acknowledge failed: ${response.code}")
-            }
+            client.newCall(request).execute().use { }
         } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Error acknowledging command: ${e.message}")
+            Log.w(TAG, "⚠️ Error acknowledging: ${e.message}")
         }
     }
 
-    // ทดสอบการเชื่อมต่อ
-    suspend fun testConnection(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            Log.d(TAG, "🧪 Testing connection to: $baseUrl/api/command/pending")
-            
-            val request = Request.Builder()
-                .url("$baseUrl/api/command/pending")
-                .get()
-                .build()
-
-            val response = client.newCall(request).execute()
-            val success = response.isSuccessful
-            
-            if (success) {
-                val body = response.body?.string()
-                Log.d(TAG, "🧪 Test SUCCESS: $body")
-            } else {
-                Log.e(TAG, "🧪 Test FAILED: code ${response.code}")
-            }
-            
-            success
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Connection test error: ${e.message}", e)
-            false
-        }
-    }
-
-    // ดึงข้อมูลล่าสุด
-    suspend fun getLatestCardData(): Map<String, Any>? = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("$baseUrl/api/card/latest")
-                .get()
-                .build()
-
-            val response = client.newCall(request).execute()
-
-            if (response.isSuccessful) {
-                val body = response.body?.string() ?: return@withContext null
-                val json = JSONObject(body)
-
-                // แปลง JSONObject เป็น Map
-                json.keys().asSequence().associateWith { json.get(it) }
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error getting latest data: ${e.message}")
-            null
-        }
-    }
-
-    // Cleanup
     fun dispose() {
         stopListeningForCommands()
         scope.cancel()
-        Log.d(TAG, "🔒 Service disposed")
     }
 }
