@@ -40,7 +40,7 @@ fun CardDataCard(cardData: CardData) {
                 )
             }
 
-            Divider(modifier = Modifier.padding(bottom = 16.dp))
+            // Divider(modifier = Modifier.padding(bottom = 16.dp))
 
             DataField("เลขบัตรประชาชน", cardData.cid, Icons.Default.AccountBox)
             DataField("ชื่อ-นามสกุล (ไทย)", cardData.nameTH, Icons.Default.Person)
